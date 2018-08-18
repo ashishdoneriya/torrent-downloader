@@ -80,6 +80,7 @@ func downloadTorrents(torrentFilesArr []os.FileInfo) {
 	}
 	torrentClient.WaitAll()
 	transferDownloadedFiles(downloadedFiles)
+	torrentClient.Close()
 }
 
 func transferDownloadedFiles(downloadedFiles *list.List) {
@@ -87,7 +88,33 @@ func transferDownloadedFiles(downloadedFiles *list.List) {
 	if ftpClient != nil {
 		return
 	}
+	for temp := downloadedFiles.Front(); temp != nil; temp = temp.Next() {
+		localFilePath := temp.Value.(string)
+		transferFileToFTP(ftpClient, localFilePath)
+		// Removing original downloaded file
+		os.Remove(localFilePath)
+	}
+	ftpClient.Logout()
+}
 
+func transferFileToFTP(ftpClient *ftp.ServerConn, localFilePath string) {
+	createRemoteDirRecur(ftpClient, localFilePath)
+	file, err := os.Open(localFilePath)
+	if err != nil {
+		fmt.Println("Unable to transfer file " + localFilePath + " to ftp " + err.Error())
+	}
+	err1 := ftpClient.Stor(localFilePath, bufio.NewReader(file))
+	if err1 != nil {
+		fmt.Println("Unable to transfer file " + localFilePath + " to ftp " + err.Error())
+	}
+}
+
+func createRemoteDirRecur(ftpClient *ftp.ServerConn, localFilePath string) {
+	if localFilePath == "." || localFilePath == ".." || localFilePath == "" || localFilePath == "/" || localFilePath == "./" {
+		return
+	}
+	createRemoteDirRecur(ftpClient, filepath.Dir(localFilePath))
+	ftpClient.MakeDir(localFilePath)
 }
 
 func getFiles(dir string) []os.FileInfo {
@@ -96,31 +123,4 @@ func getFiles(dir string) []os.FileInfo {
 		log.Fatal(err)
 	}
 	return files
-}
-
-func transfer(downloadedFiles []*torrent.File) {
-	client, err := ftp.Dial("ftphost:port")
-	if err != nil {
-		fmt.Println(err.Error())
-		return
-	}
-	if err := client.Login("username", "password"); err != nil {
-		fmt.Println(err.Error())
-		return
-	}
-
-	var todel string
-	for _, downloadedFile := range downloadedFiles {
-		todel = filepath.Dir(downloadedFile.Path())
-		client.MakeDir(filepath.Dir(downloadedFile.Path()))
-		absDownloadedFilePath := downloadedFile.Path()
-		file, err := os.Open(absDownloadedFilePath)
-		if err != nil {
-			fmt.Println(err.Error())
-			return
-		}
-		client.Stor(absDownloadedFilePath, bufio.NewReader(file))
-		os.Remove(absDownloadedFilePath)
-	}
-	os.Remove(todel)
 }
